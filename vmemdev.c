@@ -19,6 +19,7 @@ struct vmemdev
 {
     char *buf;
     size_t size;
+    size_t dataLen;    // 사용한 데이터 길이
     struct mutex lock;  // 동기화용 뮤텍스
     struct cdev cdev;   // 캐릭터 디바이스
 };
@@ -29,6 +30,7 @@ static struct vmemdev vdev; // 디바이스
 
 static char *vmemdev_devnode(const struct device *dev, umode_t *mode)   // 디바이스 권한 설정
 {
+    pr_debug("vmemdev_devnode\n");
     if (mode) 
         *mode = 0666;   // rw-rw-rw-
     return NULL;
@@ -36,12 +38,14 @@ static char *vmemdev_devnode(const struct device *dev, umode_t *mode)   // 디�
 
 static int vmemdev_open(struct inode *inode, struct file *filp)
 {
+    pr_debug("vmemdev_open\n");
     filp->private_data = &vdev;
     return 0;
 }
 
 static int vmemdev_release(struct inode *inode, struct file *filp)
 {
+    pr_debug("vmemdev_release\n");
     return 0;
 }
 
@@ -53,14 +57,15 @@ static int vmemdev_release(struct inode *inode, struct file *filp)
 /// @return 실제로 사용한 크기
 static ssize_t vmemdev_read(struct file *filp, char __user *ubuf, size_t len, loff_t *offset)
 {
+    pr_debug("vmemdev_read len = %zu, off = %lld\n", len, *offset);
     struct vmemdev *dev = filp->private_data;
 
     // EOF
-    if (*offset >= dev->size)
+    if (*offset >= dev->dataLen)
         return 0;
 
     // 실제로 읽을 수 있는 크기
-    size_t count = dev->size - *offset;
+    size_t count = dev->dataLen - *offset;
     if (len > count)
         len = count;
 
@@ -84,6 +89,7 @@ static ssize_t vmemdev_read(struct file *filp, char __user *ubuf, size_t len, lo
 /// @return 실제로 사용한 크기
 static ssize_t vmemdev_write(struct file *filp, const char __user *ubuf, size_t len, loff_t *offset)
 {
+    pr_debug("vmemdev_write len = %zu off = %lld\n", len, *offset);
     struct vmemdev *dev = filp->private_data;
 
     // EOF
@@ -100,8 +106,12 @@ static ssize_t vmemdev_write(struct file *filp, const char __user *ubuf, size_t 
     // 사용자 공간 -> 디바이스 공간 복사
     if (copy_from_user((dev->buf + *offset), ubuf, len))
         len = -EFAULT;  // 실패
-    else 
+    else
+    {
         *offset += len;
+        if (*offset > dev->dataLen)
+            dev->dataLen = *offset;
+    }
 
     mutex_unlock(&dev->lock);
     return (ssize_t)len;
@@ -114,6 +124,7 @@ static ssize_t vmemdev_write(struct file *filp, const char __user *ubuf, size_t 
 /// @return 이동한 위치
 static loff_t vmemdev_llseek(struct file *filp, loff_t offset, int whence)
 {
+    pr_debug("vmemdev_llseek off = %lld, whence = %d\n", offset, whence);
     struct vmemdev *dev = filp->private_data;
     switch (whence)
     {
@@ -124,7 +135,7 @@ static loff_t vmemdev_llseek(struct file *filp, loff_t offset, int whence)
             offset = filp->f_pos + offset; 
             break;
         case SEEK_END: 
-            offset = dev->size + offset; 
+            offset = dev->dataLen + offset; 
             break;
         default:
             return -EINVAL;
@@ -148,6 +159,7 @@ static const struct file_operations vmemdev_fops = {
 
 static int __init vmemdev_init(void)
 {
+    pr_info(VMEMDEV_NAME ": init\n");
     int ret;
 
     if (buf_size == 0) 
@@ -164,6 +176,8 @@ static int __init vmemdev_init(void)
     }
 
     vdev.size = (size_t)buf_size;
+    vdev.dataLen = 0;
+
     mutex_init(&vdev.lock);
 
     ret = alloc_chrdev_region(&vmemdev_devt, 0, 1, VMEMDEV_NAME);
@@ -214,6 +228,7 @@ static int __init vmemdev_init(void)
 
 static void __exit vmemdev_exit(void)
 {
+    pr_info(VMEMDEV_NAME ": exit\n");
     device_destroy(vmemdev_class, vmemdev_devt);
     class_destroy(vmemdev_class);
     cdev_del(&vdev.cdev);

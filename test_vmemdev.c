@@ -11,38 +11,73 @@ int main(void)
 {
     const char *path = "/dev/vmemdev";  // 가상 디바이스 위치
     int fd = open(path, O_RDWR);
-    if (fd < 0)
-    {
+    if (fd < 0) 
+    { 
         perror("open"); 
-        return 1;
+        return 1; 
     }
 
     const char *msg = "hello, vmemdev!\n";
     ssize_t n = write(fd, msg, strlen(msg));
     if (n < 0) 
-    {
-        perror("write");
-        return 1;
+    { 
+        perror("write"); 
+        return 1; 
     }
     
     printf("write %zd bytes\n", n);
 
     if (lseek(fd, 0, SEEK_SET) < 0) 
     { 
-        perror("lseek");
+        perror("lseek"); 
         return 1;
     }
 
     char buf[1024] = {0};
     n = read(fd, buf, sizeof(buf) - 1);
     if (n < 0)
-    {
-        perror("read");
+    { 
+        perror("read"); 
         return 1;
     }
     
     buf[n] = '\0';
     printf("read %zd bytes: %s", n, buf);
+
+    // 끝으로 이동 후 추가 쓰기
+    if (lseek(fd, 0, SEEK_END) < 0) 
+    { 
+        perror("lseek");
+        return 1;
+    }
+    
+    const char *msg2 = "APPEND\n";
+    n = write(fd, msg2, strlen(msg2));
+    if (n < 0)
+    {
+        perror("write2");
+        return 1; 
+    }
+    
+    printf("write %zd bytes\n", n);
+
+    // 다시 처음부터 전체 읽기
+    if (lseek(fd, 0, SEEK_SET) < 0) 
+    { 
+        perror("lseek");
+        return 1;
+    }
+    
+    char buf2[1024] = {0};
+    n = read(fd, buf2, sizeof(buf2) - 1);
+    if (n < 0)
+    { 
+        perror("read2");
+        return 1;
+    }
+ 
+    buf2[n] = '\0';
+    printf("read %zd bytes: %s", n, buf2);
 
     close(fd);
     return 0;
